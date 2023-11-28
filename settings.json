@@ -1,0 +1,80 @@
+{
+
+   "settings": [
+   {
+	"id": "accel_threshold",
+	"type": "ValueItem",
+	"name": "Accel. Th",
+	"value": 30000,
+	"max": 40000,
+	"min": 1000,
+	"step": 1000
+   },
+
+   {
+   	"id": "accel_axis",
+   	"type": "EnumItem",
+   	"name": "Axis",
+   	"values": ["X", "Y", "Z"],
+   	"value": "Z"
+   },
+   
+   {
+   	"id": "use_accel",
+   	"name": "Accel.?",
+   	"type": "ToggleItem",
+   	"value": true
+   },
+   {
+   	"id": "accel_reads",
+   	"type": "ValueItem",
+   	"name": "Accel. Read",
+   	"value": 10,
+   	"max": 80,
+   	"min": 5,
+   	"step": 1
+   },  
+   {
+   	"id": "tach_reads",
+   	"type": "ValueItem",
+   	"name": "Tach. Read",
+   	"value": 6,
+   	"max": 15,
+   	"min": 3,
+   	"step": 1
+   },
+   {
+   	"id": "power_down",
+   	"type": "ValueItem",
+   	"name": "Pwr Down (min)",
+   	"value": 10,
+   	"max": 60,
+   	"min": 0,
+   	"step": 1
+   },
+      {
+   	"id": "remote_timeout",
+   	"type": "ValueItem",
+   	"name": "Rem TmOut (min)",
+   	"value": 10,
+   	"max": 60,
+   	"min": 2,
+   	"step": 1
+   },   
+   {
+   	"id": "circ_diam",
+   	"type": "ValueItem",
+   	"name": "Circ. diam.",
+   	"value": 26.4,
+   	"max": 50.0,
+   	"min": 3.0,
+   	"step": 0.2
+   }
+   ],
+   
+   "firstrun": { "complete": false },
+   
+   "network": { "ssid": "nothing", "dwssap": "nothing" }
+   
+}
+
