@@ -4,7 +4,7 @@
 #uota
 #st7789
 #rotary_irq currently, but likely will be changed to use machine.Encoder
-#wificonfigurator
+#wificonfigurator mostly via ChatGTP
 #Peter Hinch Pushbutton primitive
 
 from machine import Pin, SPI
@@ -14,66 +14,90 @@ import uasyncio as asyncio
 import network
 import espnow
 import json
+import binascii
 
 from vfd import VFD
 from tachometer import tachometer
-from mpu6050 import accel
+from mpu6050 import MPU6050
 from primitives.pushbutton import Pushbutton
 from rotary_irq_esp import RotaryIRQ
 
 import st7789
 import vga1_16x16 as font
-
+import vga2_8x8 as smallfont
 
 #Load config
 config = []
 with open("settings.json") as f:
     config = json.load(f)
 for s in config["settings"]:
-    if s["id"] == "use_accel":
+    if s["id"] == "use_angle":
         USEACCEL = s["value"]
-    if s["id"] == "accel_threshold":
-        ACCEL_THRESHOLD = s["value"]
-    if s["id"] == "accel_axis":
+    if s["id"] == "angle_threshold":
+        ANGLE_THRESHOLD = s["value"]
+    if s["id"] == "angle_axis":
         AXIS = s["value"]
+    if s["id"] == "wired_control":
+        WIRES = int(s["value"])
+    if s["id"] == "encoder_sensitivity":
+        ENCSTEPS = s["value"]
     if s["id"] == "circ_diam":
         WHEEL_DIAM = s["value"]
+    if s["id"] == "use_tach":
+        TACH = s["value"]
     if s["id"] =="tach_reads":
         TACH_READS = s["value"]
     if s["id"] == "power_down":
         POWERDOWN = s["value"]*60000
     if s["id"] == "remote_timeout":
         SLEEP = s["value"]*60000
+    if s["id"] == "remote_ping":
+        REM_PING = s["value"]
+    if s["id"] == "remote_debug":
+        REM_DEBUG = s["value"]
     if s["id"] == "accel_reads":
         ACCEL_READS = s["value"]
+    if s["id"] == "rem_ping":
+        REM_PING = s["value"]
 
 #Analog output
 vfd = VFD(26)
 vfd.set_dac(0)
 
 #NPN pins
-spindle = Pin(4, Pin.OUT)
-direction = Pin(16, Pin.OUT)
+spindle = Pin(4, Pin.OUT) #alias as forward
+direction = Pin(16, Pin.OUT) #alias as reverse
 brake = Pin(17, Pin.OUT, Pin.PULL_UP) #This will be jumpered with a pushbutton to activate the 2N7000
-brake_active = Pin(36, Pin.IN, Pin.PULL_UP)
+brake_active = Pin(5, Pin.IN, Pin.PULL_UP)
 
 #local encoder
-r = RotaryIRQ(pin_num_clk=12, pin_num_dt=13, min_val=0, max_val=51, pull_up=True, range_mode=RotaryIRQ.RANGE_BOUNDED)
+r = RotaryIRQ(pin_num_clk=12, pin_num_dt=13, incr=ENCSTEPS, min_val=0, max_val=255, pull_up=True, range_mode=RotaryIRQ.RANGE_BOUNDED)
 #TODO, don't use 12. It is bootstrap pin so if pulled up, flash will fail
 #accelerometer
 #MPU
-mpu_readings = [0] * ACCEL_READS
 mpu = None
 if USEACCEL:
     try:
-        mpu_ready = Pin(34, Pin.IN, Pin.PULL_UP)
-        i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
-        mpu = accel(i2c)
-        Ac_T = ACCEL_THRESHOLD
-        TEMPERATURE = mpu.get_values()["Tmp"]
+        if config["mpu_ofs"]["complete"] == False:
+            mpu = MPU6050(0, 21, 22)
+            ofs1 = mpu.__readWords(0x6   , 3)
+            ofs2 = mpu.__readWords(0x13, 3)
+            mpu_ofs = ofs1 + ofs2
+            #write ofs to settings file
+            config["mpu_ofs"]["ofs"] = mpu_ofs
+            config["mpu_ofs"]["complete"] = True
+            with open("settings.json","w") as jsonfile:
+                json.dump(config, jsonfile)
+        else:
+            mpu_ofs = config["mpu_ofs"]["ofs"]
+            print(mpu_ofs)
+            mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34)
     except:
-        print("Acceleometer not found")
-        mpu = None
+        print("MPU error")
+        USEACCEL = False
+ANGLE = 0
+roll = 0
+pitch = 0
 
 #tachometer
 tach = tachometer(35,500,read_value=TACH_READS)
@@ -89,8 +113,24 @@ BLACK=st7789.WHITE
 tft.fill(BLACK)
 
 print(config)
+
+#PWRLAG = Powermatic/Laguna
+if WIRES < 3:
+    PWRLAG = True
+else:
+    PWRLAG = False
+
 #TODO - add some message on the screen? Give IP when configured?
 if not config["firstrun"]["complete"]:
+    v=10
+    msg="Network Setup"
+    tft.text(smallfont, "{}".format(msg),3,v,WHITE,BLACK)
+    v += font.HEIGHT
+    msg="Connect to ESP-Lathe"
+    tft.text(smallfont, "{}".format(msg),3,v,WHITE,BLACK)
+    v += font.HEIGHT
+    msg="http://192.168.4.1"
+    tft.text(smallfont, "{}".format(msg),3,v,WHITE,BLACK)
     from wificonfigurator import WiFiConfigurator
     wc = WiFiConfigurator()
     wc.start_ap_web_interface()
@@ -101,16 +141,25 @@ sta.disconnect()
 
 e = espnow.ESPNow()
 e.active(True)
-remote_control = b"H'\xe2M\xf5F"
-central_control = b'H\xe7)\xb4\xea\x94' #not yet correct
-e.add_peer(remote_control)
+remotes = []
+if len(config["remote"]):
+    for remote in config["remote"]:
+        addr = binascii.unhexlify(remote.replace(':', ''))
+        remotes.append(addr)
+        e.add_peer(addr)
+        e.send(addr, "UHM{}".format(config["mac"]["address"]))
+
+central_control = b"H'\xe2N3(" #This can be moved to an option during network setup
 e.add_peer(central_control) #Central control will have MQTT, etc. for HA integration
 
 RUNNING = False
+BRAKE = False
 ESTOP = False
 DIRECTION = 0
 VFDVAL = 0
 LAST_STOP = time.ticks_ms()
+REM_DEBUG = False
+REM_CONNECTED = False
 
 #circuference measurement
 MODE = 0 #0 = normal, 1 = circumference measurement, 2 = setting mode
@@ -138,68 +187,81 @@ def handle_reverse():
     DIRECTION = 0
     vfd_start()
 
-def handle_brake():
-    if RUNNING:
-        return
-    if not MODE:
-        start_brake()
-
 def vfd_stop():
-    global DIRECTION, RUNNING, LAST_STOP
+    global RUNNING, LAST_STOP
     if not MODE:
+        if PWRLAG:
+            direction.off()
         spindle.off()
         RUNNING = False
         LAST_STOP = time.ticks_ms()
+        e.send(central_control, "L0", False)
 
+    gc.collect()
+
+#unused
 def vfd_e_stop():
     global ESTOP
     spindle.off()
     ESTOP = True
 
 def vfd_start():
-    global ESTOP, DIRECTION, VFDVAL, RUNNING, LAST_STOP
+    global RUNNING
     if ESTOP:
         return
-    direction.value(DIRECTION)
-    vfd.set_dac(VFDVAL*5)
+    vfd.set_dac(VFDVAL)
     if not MODE:
-        spindle.on()
+        if PWRLAG:
+            if not DIRECTION:
+                spindle.off()
+                direction.on()
+            if DIRECTION:
+                direction.off()
+                spindle.on()
+        else:
+            direction.value(DIRECTION)
+            spindle.on()
+        
         RUNNING = True
         print("Running: {}".format(RUNNING))
+        e.send(central_control, "L1", False)
 
 def remote_connected():
+    global REM_CONNECTED
     print("Remote control sent connect message")
     if MODE:
         reset()
-    #update remote position
-    e.send(remote_control, "{}".format(VFDVAL), False)
-    #send timeout value
+    #send info to remote
+    #hostmac = "UHM{}".format(config["mac"]["address"])
     timeout = "URT{}".format(SLEEP)
-    e.send(remote_control,"{}".format(timeout), False)
-
-def start_brake():
-    global RUNNING
-    if RUNNING:
-        vfd_stop()
-    print("Brake started")
+    debug = "URD{}".format(REM_DEBUG)
+    encsteps = "UES{}".format(ENCSTEPS)
+    for remote in remotes:
+        e.send(remote,hostmac, False)        
+        e.send(remote,timeout, False)
+        e.send(remote,debug, False)
+        e.send(remote,encsteps, False)
+        e.send(remote, "{}".format(VFDVAL), False)
+    e.send(central_control,"Remote Connected", False)
+    REM_CONNECTED = True
 
 async def update_RPM():
     global RPM
-    while True:
+    while True and TACH:
         if MODE == 2:
             break
-        rpm = tach.get_RPM()
-        RPM = rpm
-        await asyncio.sleep_ms(100)
+        RPM = tach.get_RPM()
+        await asyncio.sleep_ms(50)
 
 async def update_display():
-    global RUNNING, RPM, AcBASE, AcMax, DIRECTION
+    global RUNNING, BRAKE, RPM, AcBASE, AcMax, DIRECTION
     v = 10
     #normal mode list
-    headings = ["Out:  ", "Run:  ","RPM:   "]
-
+    headings = ["Out:  ", "Run:  "]
+    if TACH:
+        headings.extend(["RPM:   "])
     if mpu:
-        headings.extend(["F:  ","Acc:  "])
+        headings.extend(["T:  ","Ang:  "])
 
     for heading in headings:
         tft.text(font, "{}".format(heading),3,v,WHITE,BLACK)
@@ -208,27 +270,33 @@ async def update_display():
     while True:
         v = 10
         if not MODE:
-            percent = int((VFDVAL*500)/255)
+            percent = int((VFDVAL*100)/255)
 
             thedir = None
+
             if RUNNING:
                 if DIRECTION:
                     thedir = "For."
                 else:
                     thedir = "Rev."
+            elif BRAKE:
+                thedir = "Brk."
             else:
                 thedir = "Stop"
-            if abs(AcMax - ACCEL_THRESHOLD) < 1000:
+
+            if abs(ANGLE - ANGLE_THRESHOLD) < 5:
                 ACCELCOLOR = st7789.RED
             else:
                 ACCELCOLOR = WHITE
             normal = [{'name': "percent", 'value': "{}%    ".format(percent), 'color': WHITE},
-                      {'name': "running", 'value': "{}     ".format(thedir), 'color': WHITE},
-                      {'name': "rpm", 'value': "{}     ".format(RPM), 'color': WHITE}
-                      ]
+                      {'name': "running", 'value': "{}     ".format(thedir), 'color': WHITE}
+                     ]
+            if TACH:
+                normal.extend([{'name': "rpm", 'value': "{}     ".format(RPM), 'color': WHITE}])
+        
             if mpu:
-                normal.extend([{'name': "temp", 'value': "{:.1f}     ".format((1.8*TEMPERATURE)+32), 'color': WHITE},
-                              {'name': "accel", 'value': "{}     ".format(AcMax), 'color': ACCELCOLOR}])
+                normal.extend([{'name': "temp", 'value': "{:.1f}     ".format(TEMPERATURE), 'color': WHITE},
+                              {'name': "accel", 'value': "{:.2f}     ".format(ANGLE), 'color': ACCELCOLOR}])
 
             for each in normal:
                 tft.text(font, each["value"],63,v,each["color"],BLACK)
@@ -247,28 +315,22 @@ async def update_display():
         await asyncio.sleep_ms(200)
 
 async def check_accel():
-    global mpu, mpu_readings, AcMax, RUNNING, TEMPERATURE
+    global mpu, ANGLE, TEMPERATURE, roll, pitch
     #This may need a lot of work to figure out when to shut it down
-
+    axis = AXIS
     while True:
         if not mpu:
             return
         if MODE == 2:
             break
-        if not mpu_ready.value():
-            #print("Checking accel...")
-            mpuval = mpu.get_values()
-            AcZ = mpuval["Ac{}".format(AXIS)]
-            TEMPERATURE = mpuval["Tmp"]
-            Ac = abs(AcZ - AcBASE)
-            mpu_readings.insert(0,Ac)
-            mpu_readings.pop()
-            average = sum(mpu_readings)/len(mpu_readings)
-            AcMax = int(average)
-            if average > ACCEL_THRESHOLD and RUNNING:
+        roll, pitch = mpu.angles
+        TEMPERATURE = mpu.fahrenheit
+        ANGLE = eval(axis)
+        if abs(ANGLE) > ANGLE_THRESHOLD and RUNNING:
                 vfd_stop()
                 print("Stopped from acceleration")
-        await asyncio.sleep_ms(50)
+                e.send(central_control, "A{}".format(ANGLE), False)
+        await asyncio.sleep_ms(10)
 
 #functions for circuference measurement tool
 def update_circ(encoder_counts):
@@ -323,14 +385,30 @@ def toggle_vac():
     e.send(central_control, "VAC", False)
 
 async def brake_check():
+    global BRAKE, RUNNING
     while True:
-        if MODE == 2:
-            break
         if not RUNNING and not brake_active.value():
+            #logic may need reversal here
             brake.on()
+            BRAKE = True
+            #brake.on()
         else:
+            #logic may need reverasl here
             brake.off()
-        await asyncio.sleep_ms(50)
+            BRAKE = False
+            #brake.off()
+        await asyncio.sleep_ms(10)
+
+async def ping_remote():
+    while True:
+        if REM_CONNECTED and REM_PING:
+            for remote in remotes:
+                if e.send(remote, "P", sync=True):
+                    print("remote alive")
+                else:
+                    if RUNNING:
+                        vfd_stop()
+        await asyncio.sleep_ms(REM_PING*1000)
 
 async def get_message():
     global r, vfd
@@ -338,43 +416,33 @@ async def get_message():
         #print("Getting message...")
         if MODE == 2:
             break
-        host, msg = e.recv(timeout_ms=10)
+        host, msg = e.recv(timeout_ms=20)
         if msg:             # msg == None if timeout in recv()
-            print(host, msg)
+            #print(host, msg)
             msgd = msg.decode("utf-8")
             if msgd.startswith('F'):
-                #DIRECTION = 1
                 handle_forward()
             elif msgd.startswith('R'):
-                #DIRECTION = 0
                 handle_reverse()
             elif msgd.startswith('C'):
                 remote_connected()
-            elif msgd.startswith('B'):
-                handle_brake()
             elif msgd.startswith('E'):
                 toggle_circ()
+            elif msgd.startswith('B'):
+                print("Got brake message")
             elif msgd.startswith('V'):
                 encoder_counts = int(msgd[1:])
                 update_circ(encoder_counts)
-
-            else:
+            elif msgd.isdigit():
                 #Only get here if it is int
                 VFDVAL = int(msg)
                 if VFDVAL > 255:
                     VFDVAL = 255
                 vfd.set_dac(VFDVAL)
                 #reset local value
-                r.set(int(VFDVAL/5))
+                r.set(int(VFDVAL))
 
-        await asyncio.sleep_ms(50)
-
-time.sleep_ms(1000)
-if mpu:
-    AcBASE = mpu.get_values()["Ac{}".format(AXIS)]
-    AcMax = AcBASE
-else:
-    AcMax = 0
+        await asyncio.sleep_ms(25)
 
 async def main():
     global VFDVAL, r, LAST_STOP
@@ -391,7 +459,8 @@ async def main():
     asyncio.create_task(check_accel())
     asyncio.create_task(update_RPM())
     asyncio.create_task(update_display())
-    #asyncio.create_task(brake_check())
+    asyncio.create_task(brake_check())
+    #asyncio.create_ask(ping_remote())
 
     while True:
         if not MODE:
@@ -402,11 +471,12 @@ async def main():
             val_new = r.value()
             if val_new != VFDVAL:
                 VFDVAL = val_new
-                vfd.set_dac(VFDVAL*5)
-                print(VFDVAL*5)
-                e.send(remote_control, "{}".format(VFDVAL), False)
+                vfd.set_dac(VFDVAL)
+                print(VFDVAL)
+                for remote in remotes:
+                    e.send(remote, "{}".format(VFDVAL), False)
                 LAST_STOP = time.ticks_ms()
-        await asyncio.sleep_ms(50)
+        await asyncio.sleep_ms(10)
 
 if __name__ == '__main__':
     gc.enable()
@@ -416,23 +486,22 @@ if __name__ == '__main__':
 #15
 #1 tx
 #3 rx
-#5
-
+#19
+#27
 #GPIOs used
 #2
 #4
+#5
 #12
 #13
 #16
 #17
 #18
-#19
 #21
 #22
 #23
 #25
 #26
-#27
 #32
 #33
 #34 input only

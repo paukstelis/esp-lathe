@@ -7,6 +7,7 @@ from machine import Pin, Encoder, SPI
 import st7789
 import vga1_16x16 as font
 import uasyncio as asyncio
+import os
 
 config = []
 with open("settings.json") as f:
@@ -40,6 +41,24 @@ def network_connect():
     print('network config:', wlan.ifconfig())
     return wlan.isconnected()
 
+
+def copy(s, t):
+    try: 
+        if os.stat(t)[0] & 0x4000:  # is directory
+            t = t.rstrip("/") + "/" + s
+    except OSError:
+        pass
+    with open(s, "rb") as s:
+        with open(t, "wb") as t:
+            while True:
+                l = s.read(512)
+                if not l: break
+                t.write(l)
+
+def factory_reset():
+    copy("settings.factory","settings.json")
+    reset()
+    
 def value_update(id, value):
     global config
     for each in config["settings"]:
@@ -78,6 +97,7 @@ for each in config["settings"]:
 menu.main_screen.add(CallbackItem("Save and Exit", save_and_exit))
 menu.main_screen.add(CallbackItem("Exit", reset))
 menu.main_screen.add(CallbackItem("Network", network_connect))
+menu.main_screen.add(CallbackItem("Factory Reset", factory_reset))
 menu._update_display(menu.main_screen.__dict__['_items'])
 menu.draw()
 
