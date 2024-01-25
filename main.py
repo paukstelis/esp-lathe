@@ -7,6 +7,8 @@
 #wificonfigurator mostly via ChatGTP
 #Peter Hinch Pushbutton primitive
 
+#TODO: implement different encoder sensitivities when encoder is button is depressed
+
 from machine import Pin, SPI
 import time, math
 from machine import SoftI2C, reset
@@ -50,7 +52,7 @@ for s in config["settings"]:
     if s["id"] == "power_down":
         POWERDOWN = s["value"]*60000
     if s["id"] == "remote_timeout":
-        SLEEP = s["value"]*60000
+        SLEEP = s["value"]
     if s["id"] == "remote_ping":
         REM_PING = s["value"]
     if s["id"] == "remote_debug":
@@ -144,6 +146,7 @@ e.active(True)
 remotes = []
 if len(config["remote"]):
     for remote in config["remote"]:
+        print("Sending messages to remote...")
         addr = binascii.unhexlify(remote.replace(':', ''))
         remotes.append(addr)
         e.add_peer(addr)
@@ -236,8 +239,7 @@ def remote_connected():
     timeout = "URT{}".format(SLEEP)
     debug = "URD{}".format(REM_DEBUG)
     encsteps = "UES{}".format(ENCSTEPS)
-    for remote in remotes:
-        e.send(remote,hostmac, False)        
+    for remote in remotes:        
         e.send(remote,timeout, False)
         e.send(remote,debug, False)
         e.send(remote,encsteps, False)
@@ -346,6 +348,7 @@ def toggle_circ():
     if MODE:
         reset()
     else:
+        vfd_stop()
         MODE = 1
         tft.fill(BLACK)
         v = 10
@@ -411,7 +414,7 @@ async def ping_remote():
         await asyncio.sleep_ms(REM_PING*1000)
 
 async def get_message():
-    global r, vfd
+    global r, vfd, VFDVAL
     while True:
         #print("Getting message...")
         if MODE == 2:
@@ -420,6 +423,7 @@ async def get_message():
         if msg:             # msg == None if timeout in recv()
             #print(host, msg)
             msgd = msg.decode("utf-8")
+            print(msgd)
             if msgd.startswith('F'):
                 handle_forward()
             elif msgd.startswith('R'):
@@ -436,11 +440,12 @@ async def get_message():
             elif msgd.isdigit():
                 #Only get here if it is int
                 VFDVAL = int(msg)
+                r.set(int(VFDVAL))
                 if VFDVAL > 255:
                     VFDVAL = 255
                 vfd.set_dac(VFDVAL)
                 #reset local value
-                r.set(int(VFDVAL))
+                
 
         await asyncio.sleep_ms(25)
 
