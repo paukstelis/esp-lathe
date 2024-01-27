@@ -11,7 +11,7 @@
 
 from machine import Pin, SPI
 import time, math
-from machine import SoftI2C, reset
+from machine import reset
 import uasyncio as asyncio
 import network
 import espnow
@@ -40,7 +40,7 @@ for s in config["settings"]:
     if s["id"] == "angle_axis":
         AXIS = s["value"]
     if s["id"] == "wired_control":
-        WIRES = int(s["value"])
+        WIRES = s["value"]
     if s["id"] == "encoder_sensitivity":
         ENCSTEPS = s["value"]
     if s["id"] == "circ_diam":
@@ -67,10 +67,33 @@ vfd = VFD(26)
 vfd.set_dac(0)
 
 #NPN pins
-spindle = Pin(4, Pin.OUT) #alias as forward
-direction = Pin(16, Pin.OUT) #alias as reverse
-brake = Pin(17, Pin.OUT, Pin.PULL_UP) #This will be jumpered with a pushbutton to activate the 2N7000
+output1 = Pin(4, Pin.OUT) #alias as forward
+output2 = Pin(16, Pin.OUT) #alias as reverse
+output3 = Pin(17, Pin.OUT)
+
 brake_active = Pin(5, Pin.IN, Pin.PULL_UP)
+
+LASTBUTTON = 0
+BUTTONTIME = 500
+
+if WIRES == "3":
+     WIRE3 = True
+     spindleon = output1
+     direction = output2
+     spindleoff = output3
+     print("3")
+
+if WIRES == "2":
+    spindlefwd = output1
+    spindlerev = output2
+    brake = Pin(17, Pin.OUT, Pin.PULL_UP)
+    print("2")
+
+if WIRES == "2A":
+    spindle = output1
+    direction = output2
+    brake = Pin(17, Pin.OUT, Pin.PULL_UP)    
+    print("2A")
 
 #local encoder
 r = RotaryIRQ(pin_num_clk=12, pin_num_dt=13, incr=ENCSTEPS, min_val=0, max_val=255, pull_up=True, range_mode=RotaryIRQ.RANGE_BOUNDED)
@@ -92,7 +115,7 @@ if USEACCEL:
                 json.dump(config, jsonfile)
         else:
             mpu_ofs = config["mpu_ofs"]["ofs"]
-            print(mpu_ofs)
+            #print(mpu_ofs)
             mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34)
     except:
         print("MPU error")
@@ -116,19 +139,14 @@ tft.fill(BLACK)
 
 print(config)
 
-#PWRLAG = Powermatic/Laguna
-if WIRES < 3:
-    PWRLAG = True
-else:
-    PWRLAG = False
 
-#TODO - add some message on the screen? Give IP when configured?
+
 if not config["firstrun"]["complete"]:
     v=10
     msg="Network Setup"
     tft.text(smallfont, "{}".format(msg),3,v,WHITE,BLACK)
     v += font.HEIGHT
-    msg="Connect to ESP-Lathe"
+    msg="Connect ESP-Lathe"
     tft.text(smallfont, "{}".format(msg),3,v,WHITE,BLACK)
     v += font.HEIGHT
     msg="http://192.168.4.1"
@@ -137,10 +155,10 @@ if not config["firstrun"]["complete"]:
     wc = WiFiConfigurator()
     wc.start_ap_web_interface()
 
+#ESPNOW
 sta = network.WLAN(network.STA_IF)
 sta.active(True)
 sta.disconnect()
-
 e = espnow.ESPNow()
 e.active(True)
 remotes = []
@@ -176,56 +194,63 @@ def save_config(msgd):
 
 def handle_forward():
     global DIRECTION
+    DIRECTION=1
     if RUNNING:
         vfd_stop()
         return
-    DIRECTION = 1
+    if WIRES == "3":
+        direction.off()
+        spindleon.on()
+    if WIRES == "2":
+        spindlefwd.on()
+        spindlerev.off()
+    if WIRES == "2A":
+        direction.off()
+    
     vfd_start()
 
 def handle_reverse():
     global DIRECTION
+    DIRECTION=0
     if RUNNING:
         vfd_stop()
         return
-    DIRECTION = 0
+    if WIRES == "3":
+        direction.on()
+        spindleon.on()
+    if WIRES == "2":
+        spindlefwd.off()
+        spindlerev.on()
+    if WIRES == "2A":
+        direction.on()
+        spindle.on()
+
     vfd_start()
 
 def vfd_stop():
-    global RUNNING, LAST_STOP
+    global RUNNING, LAST_STOP, DIRECTION, LASTBUTTON
     if not MODE:
-        if PWRLAG:
+        if WIRES == "3":
+            spindleoff.on()
             direction.off()
-        spindle.off()
+            LASTBUTTON = time.ticks_ms()
+        if WIRES == "2":
+            spindlefwd.off()
+            spindlerev.off()
+        if WIRES == "2A":
+            spindle.off()
         RUNNING = False
         LAST_STOP = time.ticks_ms()
         e.send(central_control, "L0", False)
 
     gc.collect()
 
-#unused
-def vfd_e_stop():
-    global ESTOP
-    spindle.off()
-    ESTOP = True
-
 def vfd_start():
-    global RUNNING
-    if ESTOP:
-        return
+    global RUNNING, LASTBUTTON
     vfd.set_dac(VFDVAL)
     if not MODE:
-        if PWRLAG:
-            if not DIRECTION:
-                spindle.off()
-                direction.on()
-            if DIRECTION:
-                direction.off()
-                spindle.on()
-        else:
-            direction.value(DIRECTION)
-            spindle.on()
-        
         RUNNING = True
+        LASTBUTTON = time.ticks_ms()
         print("Running: {}".format(RUNNING))
         e.send(central_control, "L1", False)
 
@@ -303,6 +328,11 @@ async def update_display():
             for each in normal:
                 tft.text(font, each["value"],63,v,each["color"],BLACK)
                 v += font.HEIGHT
+            
+            if REM_CONNECTED:
+                tft.text(font, "*", 3, 125-font.HEIGHT, WHITE, BLACK)
+            else:
+                tft.text(font, " ", 3, 125-font.HEIGHT, WHITE, BLACK)
 
         elif MODE == 1: #circ mode
             normal = ["{:.2f}     ".format(M_CIRC),
@@ -390,31 +420,41 @@ def toggle_vac():
 async def brake_check():
     global BRAKE, RUNNING
     while True:
-        if not RUNNING and not brake_active.value():
-            #logic may need reversal here
-            brake.on()
-            BRAKE = True
-            #brake.on()
+        if WIRES == "3":
+            if time.ticks_diff(time.ticks_ms(), LASTBUTTON) > BUTTONTIME:
+                spindleon.off()
+                spindleoff.off()
+                #print("release")
         else:
-            #logic may need reverasl here
-            brake.off()
-            BRAKE = False
-            #brake.off()
+            if not RUNNING and not brake_active.value():
+                #logic may need reversal here
+                brake.on()
+                BRAKE = True
+                #brake.on()
+            else:
+                #logic may need reverasl here
+                brake.off()
+                BRAKE = False
+                #brake.off()
         await asyncio.sleep_ms(10)
 
 async def ping_remote():
+    global REM_CONNECTED
     while True:
         if REM_CONNECTED and REM_PING:
             for remote in remotes:
-                if e.send(remote, "P", sync=True):
+                if e.send(remote, "P", True):
                     print("remote alive")
+                    REM_CONNECTED = True
                 else:
+                    print("remote dead")
+                    REM_CONNECTED = False
                     if RUNNING:
                         vfd_stop()
         await asyncio.sleep_ms(REM_PING*1000)
 
 async def get_message():
-    global r, vfd, VFDVAL
+    global r, vfd, VFDVAL, REM_CONNECTED
     while True:
         #print("Getting message...")
         if MODE == 2:
@@ -432,8 +472,11 @@ async def get_message():
                 remote_connected()
             elif msgd.startswith('E'):
                 toggle_circ()
-            elif msgd.startswith('B'):
-                print("Got brake message")
+            elif msgd.startswith('D'):
+                print("Remote disconnecting")
+                REM_CONNECTED = False
+            elif msgd.startswith('A'):
+                REM_CONNECTED  = True
             elif msgd.startswith('V'):
                 encoder_counts = int(msgd[1:])
                 update_circ(encoder_counts)
@@ -465,7 +508,7 @@ async def main():
     asyncio.create_task(update_RPM())
     asyncio.create_task(update_display())
     asyncio.create_task(brake_check())
-    #asyncio.create_ask(ping_remote())
+    asyncio.create_task(ping_remote())
 
     while True:
         if not MODE:

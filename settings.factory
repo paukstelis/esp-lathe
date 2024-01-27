@@ -36,8 +36,8 @@
 	 	"id": "wired_control",
 	 	"type": "EnumItem",
 	 	"name": "Wire Ctrl.",
-	 	"values": ["2", "3"],
-	 	"value": "3"
+	 	"values": ["2","2A","3"],
+	 	"value": "2"
 	},
 	{
 		"id": "use_tach",
@@ -81,11 +81,11 @@
 	{
 		"id": "remote_ping",
 		"type": "ValueItem",
-		"name": "Rem Ping (min)",
+		"name": "Rem Ping (s)",
 		"value": 0,
-		"max": 10,
+		"max": 60,
 		"min": 0,
-		"step": 1
+		"step": 5
 	},
 	{
 		"id": "circ_diam",
