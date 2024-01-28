@@ -181,7 +181,7 @@ VFDVAL = 0
 LAST_STOP = time.ticks_ms()
 REM_DEBUG = False
 REM_CONNECTED = False
-
+MISSED_PING = False
 #circuference measurement
 MODE = 0 #0 = normal, 1 = circumference measurement, 2 = setting mode
 WHEEL_DIAM = WHEEL_DIAM
@@ -439,18 +439,24 @@ async def brake_check():
         await asyncio.sleep_ms(10)
 
 async def ping_remote():
-    global REM_CONNECTED
+    global REM_CONNECTED, MISSED_PING
     while True:
         if REM_CONNECTED and REM_PING:
             for remote in remotes:
                 if e.send(remote, "P", True):
                     print("remote alive")
                     REM_CONNECTED = True
+                    MISSED_PING = False
                 else:
-                    print("remote dead")
-                    REM_CONNECTED = False
-                    if RUNNING:
-                        vfd_stop()
+                    print("missed ping")
+                    if MISSED_PING:
+                        REM_CONNECTED = False
+                        if RUNNING:
+                            vfd_stop()
+                        MISSED_PING = False
+                        return
+                    MISSED_PING = True
+
         await asyncio.sleep_ms(REM_PING*1000)
 
 async def get_message():
