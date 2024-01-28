@@ -469,7 +469,7 @@ async def get_message():
         if msg:             # msg == None if timeout in recv()
             #print(host, msg)
             msgd = msg.decode("utf-8")
-            print(msgd)
+            #print(msgd)
             if msgd.startswith('F'):
                 handle_forward()
             elif msgd.startswith('R'):
