@@ -25,22 +25,54 @@ menu = Menu(tft, 8, 12)
 menu.set_screen(MenuScreen('Settings'))
 
 def network_connect():
-    import network, gc, time
+    import network, gc, time, uota
     asyncio.new_event_loop()
     gc.collect()
+    tft.fill(BLACK)
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     #wlan.config(dhcp_hostname="lathe-test")
     wlan.config(dhcp_hostname="lathe")
     endtime = time.ticks_add(time.ticks_ms(), 45000)
     if not wlan.isconnected():
+        tft.text(font, "Connecting...", 3, 3, WHITE, BLACK)
         print('connecting to network...')
         wlan.connect(config["network"]["ssid"], config["network"]["dwssap"])
         while not wlan.isconnected() and time.ticks_diff(endtime, time.ticks_ms()) > 0:
             pass
+        #tft.text(font, "Could not connect.", 3, 3, WHITE, BLACK)
+        #time.sleep(5)
+        #reset()
     print('network config:', wlan.ifconfig())
+    tft.text(font, "Updating..", 3, 3, WHITE, BLACK)
+    if uota.check_for_updates():
+        print("Found new update....")
+        uota.install_new_firmware()
+        transfer_settings()
+        reset()
+    print("No update found")
+    tft.text(font, "No updates", 3, 3, WHITE, BLACK)
+    time.sleep(5)
+    reset()
+    
+
     return wlan.isconnected()
 
+def transfer_settings():
+    #read in new settings.json
+    newconfig = []
+    with open("settings.json") as f:
+        newconfig = json.load(f)
+    for old in config["setings"]:
+        for new in newconfig["settings"]:
+            if old["id"] == new["id"]:
+                new = old
+    newconfig["network"] = config["network"]
+    newconfig["firstrun"] = config["firstrun"]
+    newconfig["mpu_ofs"] = config["mpu_ofs"]
+    newconfig["mac"] = config["mac"]
+    with open("settings.json","w") as jsonfile:
+        json.dump(newconfig, jsonfile)
 
 def copy(s, t):
     try: 
@@ -84,7 +116,6 @@ def save_and_exit():
     reset()
 
 for each in config["settings"]:
-    print(each)
     id = each["id"]
     if each["type"] == "ValueItem":
         menu.main_screen.add(ValueItem(each["name"],each["value"],each["min"],each["max"],each["step"],(value_update, id)))
@@ -96,7 +127,8 @@ for each in config["settings"]:
 
 menu.main_screen.add(CallbackItem("Save and Exit", save_and_exit))
 menu.main_screen.add(CallbackItem("Exit", reset))
-menu.main_screen.add(CallbackItem("Network", network_connect))
+if config["network"]["ssid"] and config["network"]["dwssap"]:
+    menu.main_screen.add(CallbackItem("Network Update", network_connect))
 menu.main_screen.add(CallbackItem("Factory Reset", factory_reset))
 menu._update_display(menu.main_screen.__dict__['_items'])
 menu.draw()
@@ -117,6 +149,6 @@ async def do_menu():
         if val_old != val_new:
             menu.move(-1 if val_old > val_new else 1)
             val_old = val_new
-        await asyncio.sleep_ms(50)
+        await asyncio.sleep_ms(20)
 
 asyncio.run(do_menu())

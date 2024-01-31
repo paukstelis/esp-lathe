@@ -52,9 +52,9 @@ for s in config["settings"]:
     if s["id"] == "power_down":
         POWERDOWN = s["value"]*60000
     if s["id"] == "remote_timeout":
-        SLEEP = s["value"]
+        REM_SLEEP = int(s["value"])
     if s["id"] == "remote_ping":
-        REM_PING = s["value"]
+        REM_PING = int(s["value"])
     if s["id"] == "remote_debug":
         REM_DEBUG = s["value"]
     if s["id"] == "accel_reads":
@@ -205,7 +205,8 @@ def handle_forward():
         spindlefwd.on()
         spindlerev.off()
     if WIRES == "2A":
-        direction.off()
+        direction.on()
+        spindle.on()
     
     vfd_start()
 
@@ -222,7 +223,7 @@ def handle_reverse():
         spindlefwd.off()
         spindlerev.on()
     if WIRES == "2A":
-        direction.on()
+        direction.off()
         spindle.on()
 
     vfd_start()
@@ -255,13 +256,13 @@ def vfd_start():
         e.send(central_control, "L1", False)
 
 def remote_connected():
-    global REM_CONNECTED
+    global REM_CONNECTED, MISSED_PING
     print("Remote control sent connect message")
     if MODE:
         reset()
     #send info to remote
     #hostmac = "UHM{}".format(config["mac"]["address"])
-    timeout = "URT{}".format(SLEEP)
+    timeout = "URT{}".format(REM_SLEEP)
     debug = "URD{}".format(REM_DEBUG)
     encsteps = "UES{}".format(ENCSTEPS)
     for remote in remotes:        
@@ -271,6 +272,7 @@ def remote_connected():
         e.send(remote, "{}".format(VFDVAL), False)
     e.send(central_control,"Remote Connected", False)
     REM_CONNECTED = True
+    MISSED_PING = False
 
 async def update_RPM():
     global RPM
@@ -349,15 +351,18 @@ async def update_display():
 async def check_accel():
     global mpu, ANGLE, TEMPERATURE, roll, pitch
     #This may need a lot of work to figure out when to shut it down
-    axis = AXIS
     while True:
         if not mpu:
             return
         if MODE == 2:
             break
-        roll, pitch = mpu.angles
+        angles = mpu.angles
         TEMPERATURE = mpu.fahrenheit
-        ANGLE = eval(axis)
+        if AXIS == "roll":
+            ANGLE = angles[0]
+        else:
+            ANGLE = angles[1]
+            
         if abs(ANGLE) > ANGLE_THRESHOLD and RUNNING:
                 vfd_stop()
                 print("Stopped from acceleration")
@@ -430,12 +435,12 @@ async def brake_check():
                 #logic may need reversal here
                 brake.on()
                 BRAKE = True
-                #brake.on()
+                
             else:
                 #logic may need reverasl here
                 brake.off()
                 BRAKE = False
-                #brake.off()
+                
         await asyncio.sleep_ms(10)
 
 async def ping_remote():
@@ -453,11 +458,12 @@ async def ping_remote():
                         REM_CONNECTED = False
                         if RUNNING:
                             vfd_stop()
-                        MISSED_PING = False
                         return
                     MISSED_PING = True
-
-        await asyncio.sleep_ms(REM_PING*1000)
+        if REM_PING:
+            await asyncio.sleep_ms(REM_PING*1000)
+        else:
+            await asyncio.sleep_ms(1000)
 
 async def get_message():
     global r, vfd, VFDVAL, REM_CONNECTED

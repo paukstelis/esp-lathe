@@ -99,9 +99,9 @@
 	],
 	
 	"firstrun": { "complete": false },	
-	"network": { "ssid": "nothing", "dwssap": "nothing" },
+	"network": { "ssid": null, "dwssap": null },
 	"mpu_ofs": { "complete" : false, "ofs": "(0,0,0,0,0,0)"},
-	"mac": {"address": "none"},
+	"mac": {"address": null},
 	"remote": []
  
  }
