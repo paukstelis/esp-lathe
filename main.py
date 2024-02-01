@@ -28,6 +28,8 @@ for s in config["settings"]:
         WIRES = s["value"]
     if s["id"] == "encoder_sensitivity":
         ENCSTEPS = s["value"]
+    if s["id"] == "encoder_altsens":
+        ALTSTEPS = s["value"]
     if s["id"] == "circ_diam":
         WHEEL_DIAM = s["value"]
     if s["id"] == "use_tach":
@@ -89,8 +91,6 @@ from rotary_irq_esp import RotaryIRQ
 import st7789
 import vga1_16x16 as font
 import vga2_8x8 as smallfont
-
-
 
 #Analog output
 vfd = VFD(26)
@@ -175,8 +175,6 @@ BLACK=st7789.WHITE
 tft.fill(BLACK)
 
 print(config)
-
-
 
 if not config["firstrun"]["complete"]:
     v=10
@@ -302,10 +300,12 @@ def remote_connected():
     timeout = "URT{}".format(REM_SLEEP)
     debug = "URD{}".format(REM_DEBUG)
     encsteps = "UES{}".format(ENCSTEPS)
+    altsteps = "UAS{}".format(ALTSTEPS)
     for remote in remotes:        
         e.send(remote,timeout, False)
         e.send(remote,debug, False)
         e.send(remote,encsteps, False)
+        e.send(remote,altsteps, False)
         e.send(remote, "{}".format(VFDVAL), False)
     e.send(central_control,"Remote Connected", False)
     REM_CONNECTED = True
@@ -570,12 +570,18 @@ async def main():
                 LAST_STOP = time.ticks_ms()
             val_new = r.value()
             if val_new != VFDVAL:
+                if t1.rawstate():
+                    t1._ld.stop()
+                    r.set(incr=ALTSTEPS)
+                else:
+                    r.set(incr=ENCSTEPS)
                 VFDVAL = val_new
                 vfd.set_dac(VFDVAL)
                 print(VFDVAL)
                 for remote in remotes:
                     e.send(remote, "{}".format(VFDVAL), False)
                 LAST_STOP = time.ticks_ms()
+                
         await asyncio.sleep_ms(10)
 
 if __name__ == '__main__':
