@@ -7,10 +7,9 @@ MIT license; Copyright (c) 2021 Martin Komon
 import gc
 import uos
 import urequests
-import zlib
 import deflate
 import tarfile as tarfile
-from micropython import const
+from micropython import mem_info
 
 try:
     import logging
@@ -36,8 +35,6 @@ except ImportError:
     log.warning('ucertpin package not found, certificate pinning is disabled')
     ucertpin_available = False
 
-
-GZDICT_SZ = const(31)
 ota_config = {}
 
 def load_ota_cfg():
@@ -171,6 +168,7 @@ def install_new_firmware(quiet=False):
 
     with open(ota_config['tmp_filename'], 'rb') as f1:
         f2 = deflate.DeflateIO(f1, deflate.GZIP)
+        print(mem_info())
         f3 = tarfile.TarFile(fileobj=f2)
         for _file in f3:
             file_name = _file.name
