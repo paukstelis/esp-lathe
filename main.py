@@ -8,27 +8,12 @@
 #Peter Hinch Pushbutton primitive
 
 #TODO: implement different encoder sensitivities when encoder is button is depressed
+#Runnning into memory issues when trying to extract tar file. Check to see if file is downloaded.
+#then reset
 
-from machine import Pin, SPI
-import time, math
-from machine import reset
-import uasyncio as asyncio
-import network
-import espnow
+import uos
 import json
-import binascii
-
-from vfd import VFD
-from tachometer import tachometer
-from mpu6050 import MPU6050, FILTER_ANGLES, ANGLE_COMP
-from primitives.pushbutton import Pushbutton
-from rotary_irq_esp import RotaryIRQ
-
-import st7789
-import vga1_16x16 as font
-import vga2_8x8 as smallfont
-
-#Load config
+#Load config first so we can copy existing settings over
 config = []
 with open("settings.json") as f:
     config = json.load(f)
@@ -61,6 +46,51 @@ for s in config["settings"]:
         ACCEL_READS = s["value"]
     if s["id"] == "rem_ping":
         REM_PING = s["value"]
+try:
+    uos.stat('firmwareupdate.tar.gz')
+    import uota
+    from machine import reset
+    uota.install_new_firmware()
+    gc.collect()
+    newconfig = []
+    with open("settings.json") as f:
+        newconfig = json.load(f)
+    for old in config["settings"]:
+        for new in newconfig["settings"]:
+            if old["id"] == new["id"]:
+                new = old
+    newconfig["network"] = config["network"]
+    newconfig["firstrun"] = config["firstrun"]
+    newconfig["mpu_ofs"] = config["mpu_ofs"]
+    newconfig["mac"] = config["mac"]
+    with open("settings.json","w") as jsonfile:
+        json.dump(newconfig, jsonfile)
+    reset()
+
+except OSError:
+    print('No new firmware file found in flash.')
+
+#now the real stuff
+
+from machine import Pin, SPI
+import time, math
+import uasyncio as asyncio
+import network
+import espnow
+import json
+import binascii
+
+from vfd import VFD
+from tachometer import tachometer
+from mpu6050 import MPU6050, FILTER_ANGLES, ANGLE_COMP
+from primitives.pushbutton import Pushbutton
+from rotary_irq_esp import RotaryIRQ
+
+import st7789
+import vga1_16x16 as font
+import vga2_8x8 as smallfont
+
+
 
 #Analog output
 vfd = VFD(26)

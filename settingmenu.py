@@ -44,18 +44,17 @@ def network_connect():
         #time.sleep(5)
         #reset()
     print('network config:', wlan.ifconfig())
-    tft.text(font, "Updating..", 3, 3, WHITE, BLACK)
+    tft.text(font, "Checking updates...", 3, 3, WHITE, BLACK)
     if uota.check_for_updates():
-        print("Found new update....")
-        uota.install_new_firmware()
-        transfer_settings()
+        print("Found new update....Downloading")
+        tft.text(font, "Downloading...", 3, 3, WHITE, BLACK)
+        time.sleep(5)
         reset()
     print("No update found")
     tft.text(font, "No updates", 3, 3, WHITE, BLACK)
     time.sleep(5)
     reset()
     
-
     return wlan.isconnected()
 
 def transfer_settings():
