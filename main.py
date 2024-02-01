@@ -20,7 +20,7 @@ import binascii
 
 from vfd import VFD
 from tachometer import tachometer
-from mpu6050 import MPU6050
+from mpu6050 import MPU6050, FILTER_ANGLES, ANGLE_COMP
 from primitives.pushbutton import Pushbutton
 from rotary_irq_esp import RotaryIRQ
 
@@ -116,7 +116,14 @@ if USEACCEL:
         else:
             mpu_ofs = config["mpu_ofs"]["ofs"]
             #print(mpu_ofs)
-            mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34)
+            cfg = dict(
+                rate = 10,
+                filtered = FILTER_ANGLES,
+                anglefilter = ANGLE_COMP,
+                angles = False
+            )
+            #mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34)
+            mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), None, None, **cfg)
     except:
         print("MPU error")
         USEACCEL = False
@@ -362,7 +369,7 @@ async def check_accel():
             ANGLE = angles[0]
         else:
             ANGLE = angles[1]
-            
+
         if abs(ANGLE) > ANGLE_THRESHOLD and RUNNING:
                 vfd_stop()
                 print("Stopped from acceleration")
@@ -455,11 +462,14 @@ async def ping_remote():
                 else:
                     print("missed ping")
                     if MISSED_PING:
+                        print("second missed ping")
                         REM_CONNECTED = False
+                        MISSED_PING = False
                         if RUNNING:
                             vfd_stop()
                         return
                     MISSED_PING = True
+                    print("first missed ping")
         if REM_PING:
             await asyncio.sleep_ms(REM_PING*1000)
         else:

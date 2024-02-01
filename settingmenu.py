@@ -3,7 +3,7 @@ import json
 from machine import reset
 from primitives.pushbutton import Pushbutton
 from rotary_irq_esp import RotaryIRQ
-from machine import Pin, Encoder, SPI
+from machine import Pin, SPI
 import st7789
 import vga1_16x16 as font
 import uasyncio as asyncio
@@ -27,7 +27,7 @@ menu.set_screen(MenuScreen('Settings'))
 def network_connect():
     import network, gc, time, uota
     asyncio.new_event_loop()
-    gc.collect()
+    #gc.collect()
     tft.fill(BLACK)
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
