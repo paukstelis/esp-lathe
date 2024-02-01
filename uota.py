@@ -169,7 +169,7 @@ def install_new_firmware(quiet=False):
         return
 
     with open(ota_config['tmp_filename'], 'rb') as f1:
-        f2 = zlib.DecompIO(f1, GZDICT_SZ)
+        f2 = zlib.decompress(f1, GZDICT_SZ)
         f3 = tarfile.TarFile(fileobj=f2)
         for _file in f3:
             file_name = _file.name
