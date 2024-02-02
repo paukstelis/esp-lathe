@@ -9,6 +9,15 @@
 		"value": false
 	},
 	{
+		"id": "angle_reads",
+		"type": "ValueItem",
+		"name": "Ang. Reads",
+		"value": 10,
+	    "max": 90,
+	    "min": 1,
+		"step": 1
+   },
+	{
 	 	"id": "angle_threshold",
 	 	"type": "ValueItem",
 	 	"name": "Angle. Th",

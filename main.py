@@ -20,6 +20,8 @@ with open("settings.json") as f:
 for s in config["settings"]:
     if s["id"] == "use_angle":
         USEACCEL = s["value"]
+    if s["id"] == "angle_reads":
+        ANGLEREADS = s["value"]
     if s["id"] == "angle_threshold":
         ANGLE_THRESHOLD = s["value"]
     if s["id"] == "angle_axis":
@@ -147,7 +149,7 @@ if USEACCEL:
             mpu_ofs = config["mpu_ofs"]["ofs"]
             #print(mpu_ofs)
             cfg = dict(
-                rate = 10,
+                rate = ANGLEREADS,
                 filtered = FILTER_ANGLES,
                 anglefilter = ANGLE_COMP,
                 angles = False
