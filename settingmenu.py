@@ -38,11 +38,13 @@ def network_connect():
         tft.text(font, "Connecting...", 3, 3, WHITE, BLACK)
         print('connecting to network...')
         wlan.connect(config["network"]["ssid"], config["network"]["dwssap"])
+
         while not wlan.isconnected() and time.ticks_diff(endtime, time.ticks_ms()) > 0:
             pass
-        #tft.text(font, "Could not connect.", 3, 3, WHITE, BLACK)
-        #time.sleep(5)
-        #reset()
+        
+        tft.text(font, "Could not connect.", 3, 3, WHITE, BLACK)
+        time.sleep(5)
+        reset()
     print('network config:', wlan.ifconfig())
     tft.text(font, "Checking updates...", 3, 3, WHITE, BLACK)
     if uota.check_for_updates():
@@ -129,6 +131,7 @@ menu.main_screen.add(CallbackItem("Exit", reset))
 if config["network"]["ssid"] and config["network"]["dwssap"]:
     menu.main_screen.add(CallbackItem("Network Update", network_connect))
 menu.main_screen.add(CallbackItem("Factory Reset", factory_reset))
+menu.main_screen.add(InfoItem("Version", config["version"]))
 menu._update_display(menu.main_screen.__dict__['_items'])
 menu.draw()
 

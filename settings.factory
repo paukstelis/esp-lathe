@@ -119,7 +119,8 @@
 	"network": { "ssid": null, "dwssap": null },
 	"mpu_ofs": { "complete" : false, "ofs": "(0,0,0,0,0,0)"},
 	"mac": {"address": null},
-	"remote": []
+	"remote": [],
+	"version": "0.0.5"
  
  }
  

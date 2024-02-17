@@ -1,3 +1,4 @@
+#0.0.5
 #this requires micropython version that has machine.Counter to use hardware counting for tachometer
 #other libraries used:
 #umenu
@@ -17,6 +18,63 @@ import json
 config = []
 with open("settings.json") as f:
     config = json.load(f)
+try:
+    uos.stat('firmwareupdate.tar.gz')
+    import uota
+    from machine import reset
+    uota.install_new_firmware()
+    gc.collect()
+    newconfig = []
+    with open("settings.json") as f:
+        newconfig = json.load(f)
+    for old in config["settings"]:
+        for new in newconfig["settings"]:
+            if new["id"] == old["id"]:
+                new = old
+    newconfig["network"] = config["network"]
+    newconfig["firstrun"] = config["firstrun"]
+    newconfig["mpu_ofs"] = config["mpu_ofs"]
+    newconfig["mac"] = config["mac"]
+    newconfig["remote"] = config["remote"]
+    with open("settings.json","w") as jsonfile:
+        json.dump(newconfig, jsonfile)
+    reset()
+
+except OSError:
+    print('No new firmware file found in flash.')
+
+#now the real stuff
+
+from machine import Pin, SPI
+import time, math
+import uasyncio as asyncio
+import network
+import espnow
+import json
+import binascii
+
+from vfd import VFD
+from tachometer import tachometer
+from mpu6050 import MPU6050, FILTER_ANGLES, ANGLE_COMP, ANGLE_BOTH, ANGLE_KAL
+from primitives.pushbutton import Pushbutton
+from rotary_irq_esp import RotaryIRQ
+
+import st7789
+import vga1_16x16 as font
+import vga2_8x8 as smallfont
+
+#Analog output
+vfd = VFD(26)
+vfd.set_dac(0)
+
+#NPN pins
+output1 = Pin(4, Pin.OUT) #alias as forward
+output2 = Pin(16, Pin.OUT) #alias as reverse
+output3 = Pin(17, Pin.OUT)
+
+brake_active = Pin(5, Pin.IN, Pin.PULL_UP)
+
+#input all the settings
 for s in config["settings"]:
     if s["id"] == "use_angle":
         USEACCEL = s["value"]
@@ -50,60 +108,6 @@ for s in config["settings"]:
         ACCEL_READS = s["value"]
     if s["id"] == "rem_ping":
         REM_PING = s["value"]
-try:
-    uos.stat('firmwareupdate.tar.gz')
-    import uota
-    from machine import reset
-    uota.install_new_firmware()
-    gc.collect()
-    newconfig = []
-    with open("settings.json") as f:
-        newconfig = json.load(f)
-    for old in config["settings"]:
-        for new in newconfig["settings"]:
-            if old["id"] == new["id"]:
-                new = old
-    newconfig["network"] = config["network"]
-    newconfig["firstrun"] = config["firstrun"]
-    newconfig["mpu_ofs"] = config["mpu_ofs"]
-    newconfig["mac"] = config["mac"]
-    with open("settings.json","w") as jsonfile:
-        json.dump(newconfig, jsonfile)
-    reset()
-
-except OSError:
-    print('No new firmware file found in flash.')
-
-#now the real stuff
-
-from machine import Pin, SPI
-import time, math
-import uasyncio as asyncio
-import network
-import espnow
-import json
-import binascii
-
-from vfd import VFD
-from tachometer import tachometer
-from mpu6050 import MPU6050, FILTER_ANGLES, ANGLE_COMP
-from primitives.pushbutton import Pushbutton
-from rotary_irq_esp import RotaryIRQ
-
-import st7789
-import vga1_16x16 as font
-import vga2_8x8 as smallfont
-
-#Analog output
-vfd = VFD(26)
-vfd.set_dac(0)
-
-#NPN pins
-output1 = Pin(4, Pin.OUT) #alias as forward
-output2 = Pin(16, Pin.OUT) #alias as reverse
-output3 = Pin(17, Pin.OUT)
-
-brake_active = Pin(5, Pin.IN, Pin.PULL_UP)
 
 LASTBUTTON = 0
 BUTTONTIME = 500
@@ -133,6 +137,8 @@ r = RotaryIRQ(pin_num_clk=12, pin_num_dt=13, incr=ENCSTEPS, min_val=0, max_val=2
 #accelerometer
 #MPU
 mpu = None
+mpu_readings = [0] * ANGLEREADS
+
 if USEACCEL:
     try:
         if config["mpu_ofs"]["complete"] == False:
@@ -152,10 +158,10 @@ if USEACCEL:
                 rate = ANGLEREADS,
                 filtered = FILTER_ANGLES,
                 anglefilter = ANGLE_COMP,
-                angles = False
+                angles = True
             )
             #mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34)
-            mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), None, None, **cfg)
+            mpu = MPU6050(0, 21, 22, tuple(mpu_ofs), 34, **cfg)
     except:
         print("MPU error")
         USEACCEL = False
@@ -303,11 +309,17 @@ def remote_connected():
     debug = "URD{}".format(REM_DEBUG)
     encsteps = "UES{}".format(ENCSTEPS)
     altsteps = "UAS{}".format(ALTSTEPS)
+    accesspoint = "UAP{}".format(config["network"]["ssid"])
+    password = "UPW{}".format(config["network"]["dwssap"])
+    version = 'UVN{}'.format(config["version"])
     for remote in remotes:        
         e.send(remote,timeout, False)
         e.send(remote,debug, False)
         e.send(remote,encsteps, False)
         e.send(remote,altsteps, False)
+        e.send(remote,accesspoint, False)
+        e.send(remote,password, False)
+        e.send(remote,version, False)
         e.send(remote, "{}".format(VFDVAL), False)
     e.send(central_control,"Remote Connected", False)
     REM_CONNECTED = True
@@ -388,7 +400,7 @@ async def update_display():
         await asyncio.sleep_ms(200)
 
 async def check_accel():
-    global mpu, ANGLE, TEMPERATURE, roll, pitch
+    global mpu, mpu_readings, ANGLE, TEMPERATURE, roll, pitch
     #This may need a lot of work to figure out when to shut it down
     while True:
         if not mpu:
@@ -396,13 +408,18 @@ async def check_accel():
         if MODE == 2:
             break
         angles = mpu.angles
+        #rint(angles)
         TEMPERATURE = mpu.fahrenheit
         if AXIS == "roll":
             ANGLE = angles[0]
         else:
             ANGLE = angles[1]
-
-        if abs(ANGLE) > ANGLE_THRESHOLD and RUNNING:
+        mpu_readings.insert(0,abs(ANGLE))
+        mpu_readings.pop()
+        avg = sum(mpu_readings)/len(mpu_readings)
+        ANGLE = avg
+        #print(avg)
+        if abs(avg) > ANGLE_THRESHOLD and RUNNING:
                 vfd_stop()
                 print("Stopped from acceleration")
                 e.send(central_control, "A{}".format(ANGLE), False)
@@ -487,25 +504,24 @@ async def ping_remote():
     while True:
         if REM_CONNECTED and REM_PING:
             for remote in remotes:
-                if e.send(remote, "P", True):
-                    print("remote alive")
-                    REM_CONNECTED = True
-                    MISSED_PING = False
-                else:
-                    print("missed ping")
-                    if MISSED_PING:
-                        print("second missed ping")
-                        REM_CONNECTED = False
+                try:
+                    if e.send(remote, "P", True):
+                        print("remote alive")
                         MISSED_PING = False
-                        if RUNNING:
-                            vfd_stop()
-                        return
-                    MISSED_PING = True
-                    print("first missed ping")
-        if REM_PING:
-            await asyncio.sleep_ms(REM_PING*1000)
-        else:
-            await asyncio.sleep_ms(1000)
+                    else:
+                        print("missed ping")
+                        if MISSED_PING:
+                            print("second missed ping")
+                            REM_CONNECTED = False
+                            MISSED_PING = False
+                            if RUNNING:
+                                vfd_stop()
+                        MISSED_PING = True
+                        print("first missed ping")
+                except:
+                    print("Exception in Ping. Remote updating?")
+
+        await asyncio.sleep_ms(REM_PING*1000)
 
 async def get_message():
     global r, vfd, VFDVAL, REM_CONNECTED
@@ -517,7 +533,7 @@ async def get_message():
         if msg:             # msg == None if timeout in recv()
             #print(host, msg)
             msgd = msg.decode("utf-8")
-            #print(msgd)
+            print(msgd)
             if msgd.startswith('F'):
                 handle_forward()
             elif msgd.startswith('R'):

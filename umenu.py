@@ -392,6 +392,7 @@ class Menu:
         v_padding = int((self.line_height - self.font_height) / 2)
         background = int(item.is_active)
         if background:
+            print(item.name)
             bg = BLACK
             fg = WHITE
         else:
