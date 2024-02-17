@@ -30,7 +30,7 @@ try:
     for old in config["settings"]:
         for new in newconfig["settings"]:
             if new["id"] == old["id"]:
-                new = old
+                new["value"] = old["value"]
     newconfig["network"] = config["network"]
     newconfig["firstrun"] = config["firstrun"]
     newconfig["mpu_ofs"] = config["mpu_ofs"]
