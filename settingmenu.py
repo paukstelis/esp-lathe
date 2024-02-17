@@ -41,7 +41,8 @@ def network_connect():
 
         while not wlan.isconnected() and time.ticks_diff(endtime, time.ticks_ms()) > 0:
             pass
-        
+
+    if not wlan.isconnected():
         tft.text(font, "Could not connect.", 3, 3, WHITE, BLACK)
         time.sleep(5)
         reset()
