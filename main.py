@@ -211,7 +211,7 @@ if len(config["remote"]):
         addr = binascii.unhexlify(remote.replace(':', ''))
         remotes.append(addr)
         e.add_peer(addr)
-        e.send(addr, "UHM{}".format(config["mac"]["address"]))
+        e.send(addr, "UHM{}".format(config["mac"]["address"]),False)
 
 central_control = b"H'\xe2N3(" #This can be moved to an option during network setup
 e.add_peer(central_control) #Central control will have MQTT, etc. for HA integration
